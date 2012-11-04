@@ -530,4 +530,6 @@ class JobBatch:
         self.jobs = jobs
 
     def __call__(self):
+        # execute the jobs sequentially, and return their results as a list,
+        # which will need to be flattened in the end
         return [func(*args, **kwargs) for func, args, kwargs in self.jobs]
