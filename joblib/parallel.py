@@ -289,7 +289,7 @@ class Parallel(Logger):
          [Parallel(n_jobs=2)]: Done   5 out of   6 | elapsed:    0.0s remaining:    0.0s
          [Parallel(n_jobs=2)]: Done   6 out of   6 | elapsed:    0.0s finished
     '''
-    def __init__(self, n_jobs=1, verbose=0, pre_dispatch='all'):
+    def __init__(self, n_jobs=1, verbose=0, pre_dispatch='all', batch_size=1):
         self.verbose = verbose
         self.n_jobs = n_jobs
         self.pre_dispatch = pre_dispatch
@@ -298,6 +298,7 @@ class Parallel(Logger):
         # able to close it ASAP, and not burden the user with closing it.
         self._output = None
         self._jobs = list()
+        self.batch_size = batch_size
 
     def dispatch(self, func, args, kwargs):
         """ Queue the function for computing, with or without multiprocessing
@@ -479,8 +480,21 @@ Sub-process traceback:
         self._start_time = time.time()
         self.n_dispatched = 0
         try:
-            for function, args, kwargs in iterable:
-                self.dispatch(function, args, kwargs)
+            if self.batch_size > 1:
+                jobs = [] # job accumulator
+                for function, args, kwargs in iterable:
+                    if len(jobs) == self.batch_size: # acc has reached batch_size:
+                        batch = JobBatch(jobs)       # it's time to dispatch it
+                        self.dispatch(batch, (), {})
+                        jobs = []
+                    jobs.append((function, args, kwargs))
+                if jobs: # dispatch remaining jobs (possibly as incomplete batch)
+                    batch = JobBatch(jobs)
+                    self.dispatch(batch, (), {})
+
+            else: # normal non-batch mechanism
+                for function, args, kwargs in iterable:
+                    self.dispatch(function, args, kwargs)                
 
             self.retrieve()
             # Make sure that we get a last message telling us we are done
@@ -496,9 +510,24 @@ Sub-process traceback:
                 self._pool.close()
                 self._pool.join()
             self._jobs = list()
-        output = self._output
+
+        if self.batch_size > 1: # flatten the results obtained from JobBatches
+            output = [r for res in self._output for r in res]
+        else:
+            output = self._output
         self._output = None
         return output
 
     def __repr__(self):
         return '%s(n_jobs=%s)' % (self.__class__.__name__, self.n_jobs)
+
+###############################################################################
+# Job batch to be executed by a single process (this callable pattern is used 
+# because multiprocessing.pool can dispatch pickable functions)
+class JobBatch:
+
+    def __init__(self, jobs):
+        self.jobs = jobs
+
+    def __call__(self):
+        return [func(*args, **kwargs) for func, args, kwargs in self.jobs]
