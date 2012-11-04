@@ -523,7 +523,7 @@ Sub-process traceback:
 
 ###############################################################################
 # Job batch to be executed by a single process (this callable pattern is used 
-# because multiprocessing.pool can dispatch pickable functions)
+# because multiprocessing.pool can only dispatch pickable functions)
 class JobBatch:
 
     def __init__(self, jobs):
